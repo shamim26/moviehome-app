@@ -169,6 +169,10 @@ class _DetailContentState extends ConsumerState<_DetailContent> {
                   CachedNetworkImage(
                     imageUrl: backdropUrl,
                     fit: BoxFit.cover,
+                    memCacheWidth: (MediaQuery.sizeOf(context).width *
+                            MediaQuery.devicePixelRatioOf(context))
+                        .round()
+                        .clamp(1, 1080),
                     placeholder: (_, _) => const ColoredBox(color: AppColors.secondary),
                     errorWidget: (_, _, _) => const ColoredBox(color: AppColors.secondary),
                   ),
@@ -213,6 +217,9 @@ class _DetailContentState extends ConsumerState<_DetailContent> {
                               ? CachedNetworkImage(
                                   imageUrl: posterUrl,
                                   fit: BoxFit.cover,
+                                  memCacheWidth: (105 *
+                                          MediaQuery.devicePixelRatioOf(context))
+                                      .round(),
                                   placeholder: (_, _) => const ShimmerBox(radius: 0),
                                   errorWidget: (_, _, _) => const ColoredBox(color: AppColors.secondary),
                                 )
@@ -407,48 +414,54 @@ class _DetailContentState extends ConsumerState<_DetailContent> {
                     style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 105,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: details.cast.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 14),
-                      itemBuilder: (_, idx) {
-                        final member = details.cast[idx];
-                        final profileUrl = tmdbImageUrl(member.profilePath, size: TmdbImageSize.w300);
-                        return SizedBox(
-                          width: 72,
-                          child: Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 28,
-                                backgroundColor: AppColors.secondary,
-                                backgroundImage: profileUrl.isNotEmpty
-                                    ? CachedNetworkImageProvider(profileUrl)
-                                    : null,
-                                child: profileUrl.isEmpty
-                                    ? const Icon(LucideIcons.user, size: 22, color: AppColors.mutedForeground)
-                                    : null,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                member.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                              ),
-                              Text(
-                                member.character,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 9.5, color: AppColors.mutedForeground),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                  RepaintBoundary(
+                    child: SizedBox(
+                      height: 105,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: details.cast.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 14),
+                        itemBuilder: (_, idx) {
+                          final member = details.cast[idx];
+                          final profileUrl = tmdbImageUrl(member.profilePath, size: TmdbImageSize.w300);
+                          final dpr = MediaQuery.devicePixelRatioOf(context);
+                          return SizedBox(
+                            width: 72,
+                            child: Column(
+                              children: [
+                                CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: AppColors.secondary,
+                                  backgroundImage: profileUrl.isNotEmpty
+                                      ? CachedNetworkImageProvider(
+                                          profileUrl,
+                                          maxHeight: (56 * dpr).round(),
+                                        )
+                                      : null,
+                                  child: profileUrl.isEmpty
+                                      ? const Icon(LucideIcons.user, size: 22, color: AppColors.mutedForeground)
+                                      : null,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  member.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  member.character,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 9.5, color: AppColors.mutedForeground),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -461,25 +474,27 @@ class _DetailContentState extends ConsumerState<_DetailContent> {
                     style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 195 + 44,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: details.recommendations.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 12),
-                      itemBuilder: (_, idx) {
-                        final rec = details.recommendations[idx];
-                        return MediaCard(
-                          item: rec,
-                          width: 125,
-                          heroPrefix: 'rec',
-                          onTap: () => DetailScreen.push(
-                            context,
-                            rec,
-                            MediaCard.heroTag('rec', rec),
-                          ),
-                        );
-                      },
+                  RepaintBoundary(
+                    child: SizedBox(
+                      height: 195 + 44,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: details.recommendations.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (_, idx) {
+                          final rec = details.recommendations[idx];
+                          return MediaCard(
+                            item: rec,
+                            width: 125,
+                            heroPrefix: 'rec',
+                            onTap: () => DetailScreen.push(
+                              context,
+                              rec,
+                              MediaCard.heroTag('rec', rec),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 40),

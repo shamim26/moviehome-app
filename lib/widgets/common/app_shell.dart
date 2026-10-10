@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../config/app_theme.dart';
@@ -70,30 +68,33 @@ class _FloatingNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: AppColors.card.withValues(alpha: 0.82),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-          ),
-          child: Row(
-            children: [
-              for (var i = 0; i < tabs.length; i++)
-                Expanded(
-                  child: _NavItem(
-                    tab: tabs[i],
-                    selected: i == index,
-                    onTap: () => onChanged(i),
-                  ),
+    return RepaintBoundary(
+      child: Container(
+        height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xF412141A),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.45),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            for (var i = 0; i < tabs.length; i++)
+              Expanded(
+                child: _NavItem(
+                  tab: tabs[i],
+                  selected: i == index,
+                  onTap: () => onChanged(i),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );

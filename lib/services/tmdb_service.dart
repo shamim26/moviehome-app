@@ -84,27 +84,75 @@ class TmdbService {
     );
   }
 
+  // ── In-Memory Caches for fast navigation & low RAM usage ─────────────
+  final Map<String, MediaDetails> _detailsCache = {};
+  final List<String> _detailsCacheOrder = [];
+  static const int _maxDetailsCacheSize = 40;
+
+  List<MediaItem>? _cachedTrending;
+  List<MediaItem>? _cachedPopularMovies;
+  List<MediaItem>? _cachedTopRatedMovies;
+  List<MediaItem>? _cachedNowPlayingMovies;
+  List<MediaItem>? _cachedPopularTv;
+  List<MediaItem>? _cachedTopRatedTv;
+
+  /// Clears in-memory caches to free RAM when under memory pressure or refreshing.
+  void clearMemoryCache() {
+    _detailsCache.clear();
+    _detailsCacheOrder.clear();
+    _cachedTrending = null;
+    _cachedPopularMovies = null;
+    _cachedTopRatedMovies = null;
+    _cachedNowPlayingMovies = null;
+    _cachedPopularTv = null;
+    _cachedTopRatedTv = null;
+  }
+
   // ── Home rows ───────────────────────────────────────────────────────────
 
-  Future<List<MediaItem>> trending() async =>
-      _items(await _get('/trending/all/day'))
-          .where((m) => m.backdropPath != null || m.posterPath != null)
-          .toList();
+  Future<List<MediaItem>> trending({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedTrending != null) return _cachedTrending!;
+    final items = _items(await _get('/trending/all/day'))
+        .where((m) => m.backdropPath != null || m.posterPath != null)
+        .toList();
+    _cachedTrending = items;
+    return items;
+  }
 
-  Future<List<MediaItem>> popularMovies() async =>
-      _items(await _get('/movie/popular'), forced: MediaType.movie);
+  Future<List<MediaItem>> popularMovies({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedPopularMovies != null) return _cachedPopularMovies!;
+    final items = _items(await _get('/movie/popular'), forced: MediaType.movie);
+    _cachedPopularMovies = items;
+    return items;
+  }
 
-  Future<List<MediaItem>> topRatedMovies() async =>
-      _items(await _get('/movie/top_rated'), forced: MediaType.movie);
+  Future<List<MediaItem>> topRatedMovies({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedTopRatedMovies != null) return _cachedTopRatedMovies!;
+    final items = _items(await _get('/movie/top_rated'), forced: MediaType.movie);
+    _cachedTopRatedMovies = items;
+    return items;
+  }
 
-  Future<List<MediaItem>> nowPlayingMovies() async =>
-      _items(await _get('/movie/now_playing'), forced: MediaType.movie);
+  Future<List<MediaItem>> nowPlayingMovies({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedNowPlayingMovies != null) return _cachedNowPlayingMovies!;
+    final items = _items(await _get('/movie/now_playing'), forced: MediaType.movie);
+    _cachedNowPlayingMovies = items;
+    return items;
+  }
 
-  Future<List<MediaItem>> popularTv() async =>
-      _items(await _get('/tv/popular'), forced: MediaType.tv);
+  Future<List<MediaItem>> popularTv({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedPopularTv != null) return _cachedPopularTv!;
+    final items = _items(await _get('/tv/popular'), forced: MediaType.tv);
+    _cachedPopularTv = items;
+    return items;
+  }
 
-  Future<List<MediaItem>> topRatedTv() async =>
-      _items(await _get('/tv/top_rated'), forced: MediaType.tv);
+  Future<List<MediaItem>> topRatedTv({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedTopRatedTv != null) return _cachedTopRatedTv!;
+    final items = _items(await _get('/tv/top_rated'), forced: MediaType.tv);
+    _cachedTopRatedTv = items;
+    return items;
+  }
 
   // ── Browse (paginated) ──────────────────────────────────────────────────
 
@@ -214,10 +262,27 @@ class TmdbService {
   // ── Details & search ────────────────────────────────────────────────────
 
   Future<MediaDetails> details(int id, MediaType type) async {
+    final cacheKey = '${type.path}_$id';
+    final cached = _detailsCache[cacheKey];
+    if (cached != null) {
+      _detailsCacheOrder.remove(cacheKey);
+      _detailsCacheOrder.add(cacheKey);
+      return cached;
+    }
+
     final data = await _get('/${type.path}/$id', {
       'append_to_response': 'videos,credits,recommendations',
     });
-    return MediaDetails.fromJson(data, type);
+    final result = MediaDetails.fromJson(data, type);
+
+    if (_detailsCacheOrder.length >= _maxDetailsCacheSize) {
+      final oldest = _detailsCacheOrder.removeAt(0);
+      _detailsCache.remove(oldest);
+    }
+    _detailsCache[cacheKey] = result;
+    _detailsCacheOrder.add(cacheKey);
+
+    return result;
   }
 
   Future<PaginatedMedia> search(String query, {int page = 1}) async {

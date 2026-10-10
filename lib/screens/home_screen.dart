@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
 import '../config/app_theme.dart';
 import '../models/media_item.dart';
 import '../providers/home_provider.dart';
+import '../services/tmdb_service.dart';
 import '../widgets/common/hero_carousel.dart';
 import '../widgets/common/media_row.dart';
 import '../widgets/common/shimmer_box.dart';
 import 'detail_screen.dart';
 import 'player_screen.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -19,25 +23,12 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final trending = ref.watch(trendingProvider);
-
-    Widget row(String title, FutureProvider<List<MediaItem>> provider) {
-      final async = ref.watch(provider);
-      return AsyncMediaRow(
-        title: title,
-        isLoading: async.isLoading && !async.hasValue,
-        error: async.hasError && !async.hasValue ? async.error : null,
-        items: async.value ?? const [],
-        onItemTap: (m, tag) => _open(context, m, tag),
-        onRetry: () => ref.invalidate(provider),
-      );
-    }
-
     return RefreshIndicator(
       color: AppColors.primary,
       backgroundColor: AppColors.card,
       edgeOffset: MediaQuery.paddingOf(context).top,
       onRefresh: () async {
+        ref.read(tmdbServiceProvider).clearMemoryCache();
         ref.invalidate(trendingProvider);
         ref.invalidate(popularMoviesProvider);
         ref.invalidate(topRatedMoviesProvider);
@@ -56,19 +47,8 @@ class HomeScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Stack(
               children: [
-                trending.when(
-                  data: (items) => items.isEmpty
-                      ? const SizedBox(height: 120)
-                      : HeroCarousel(
-                          items: items,
-                          onDetails: (m) => _open(context, m, 'hero-${m.mediaType.path}-${m.id}'),
-                          onWatch: (m) => PlayerScreen.push(context, item: m),
-                        ),
-                  loading: () => const ShimmerBox(height: 460, radius: 0),
-                  error: (e, _) => _HeroError(
-                    message: e.toString(),
-                    onRetry: () => ref.invalidate(trendingProvider),
-                  ),
+                _HeroCarouselSection(
+                  onOpen: _open,
                 ),
                 const Positioned(top: 0, left: 0, right: 0, child: _TopBar()),
               ],
@@ -76,16 +56,92 @@ class HomeScreen extends ConsumerWidget {
           ),
           SliverList.list(
             children: [
-              row('Popular Movies', popularMoviesProvider),
-              row('Now Playing', nowPlayingMoviesProvider),
-              row('Popular Series', popularTvProvider),
-              row('Top Rated Movies', topRatedMoviesProvider),
-              row('Top Rated Series', topRatedTvProvider),
+              _HomeMediaRow(
+                title: 'Popular Movies',
+                provider: popularMoviesProvider,
+                onItemTap: (m, tag) => _open(context, m, tag),
+              ),
+              _HomeMediaRow(
+                title: 'Now Playing',
+                provider: nowPlayingMoviesProvider,
+                onItemTap: (m, tag) => _open(context, m, tag),
+              ),
+              _HomeMediaRow(
+                title: 'Popular Series',
+                provider: popularTvProvider,
+                onItemTap: (m, tag) => _open(context, m, tag),
+              ),
+              _HomeMediaRow(
+                title: 'Top Rated Movies',
+                provider: topRatedMoviesProvider,
+                onItemTap: (m, tag) => _open(context, m, tag),
+              ),
+              _HomeMediaRow(
+                title: 'Top Rated Series',
+                provider: topRatedTvProvider,
+                onItemTap: (m, tag) => _open(context, m, tag),
+              ),
               // Space so the floating nav bar never covers the last row.
               SizedBox(height: 110 + MediaQuery.paddingOf(context).bottom),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _HeroCarouselSection extends ConsumerWidget {
+  const _HeroCarouselSection({required this.onOpen});
+
+  final void Function(BuildContext context, MediaItem item, [String? heroTag])
+      onOpen;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final trending = ref.watch(trendingProvider);
+    return RepaintBoundary(
+      child: trending.when(
+        data: (items) => items.isEmpty
+            ? const SizedBox(height: 120)
+            : HeroCarousel(
+                items: items,
+                onDetails: (m) =>
+                    onOpen(context, m, 'hero-${m.mediaType.path}-${m.id}'),
+                onWatch: (m) => PlayerScreen.push(context, item: m),
+              ),
+        loading: () => const ShimmerBox(height: 460, radius: 0),
+        error: (e, _) => _HeroError(
+          message: e.toString(),
+          onRetry: () => ref.invalidate(trendingProvider),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeMediaRow extends ConsumerWidget {
+  const _HomeMediaRow({
+    required this.title,
+    required this.provider,
+    required this.onItemTap,
+  });
+
+  final String title;
+  final FutureProvider<List<MediaItem>> provider;
+  final void Function(MediaItem item, String heroTag) onItemTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(provider);
+    return RepaintBoundary(
+      child: AsyncMediaRow(
+        title: title,
+        isLoading: async.isLoading && !async.hasValue,
+        error: async.hasError && !async.hasValue ? async.error : null,
+        items: async.value ?? const [],
+        onItemTap: onItemTap,
+        onRetry: () => ref.invalidate(provider),
       ),
     );
   }
@@ -99,14 +155,46 @@ class _TopBar extends StatelessWidget {
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-        child: Text(
-          'MOVIE HOME',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 2.4,
-            color: AppColors.primary,
-          ),
+        padding: const EdgeInsets.fromLTRB(20, 8, 16, 0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'MOVIE HOME',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 2.4,
+                color: AppColors.primary,
+              ),
+            ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: () => SearchScreen.push(context),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      LucideIcons.search,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

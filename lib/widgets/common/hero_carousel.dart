@@ -33,7 +33,7 @@ class HeroCarousel extends StatefulWidget {
 class _HeroCarouselState extends State<HeroCarousel> {
   PageController? _controller;
   Timer? _timer;
-  int _index = 0;
+  final ValueNotifier<int> _indexNotifier = ValueNotifier<int>(0);
   bool _isUserInteracting = false;
 
   List<MediaItem> get _items => widget.items.take(8).toList();
@@ -74,6 +74,7 @@ class _HeroCarouselState extends State<HeroCarousel> {
   void dispose() {
     _timer?.cancel();
     _controller?.dispose();
+    _indexNotifier.dispose();
     super.dispose();
   }
 
@@ -84,78 +85,85 @@ class _HeroCarouselState extends State<HeroCarousel> {
 
     final controller = _controller ?? PageController();
 
-    return SizedBox(
-      height: widget.height,
-      child: Stack(
-        children: [
-          NotificationListener<UserScrollNotification>(
-            onNotification: (notification) {
-              if (notification.direction == ScrollDirection.idle) {
-                _isUserInteracting = false;
-                _startTimer();
-              } else {
-                _isUserInteracting = true;
-                _timer?.cancel();
-              }
-              return false;
-            },
-            child: PageView.builder(
-              controller: controller,
-              onPageChanged: (i) {
-                if (items.isNotEmpty) {
-                  setState(() => _index = i % items.length);
+    return RepaintBoundary(
+      child: SizedBox(
+        height: widget.height,
+        child: Stack(
+          children: [
+            NotificationListener<UserScrollNotification>(
+              onNotification: (notification) {
+                if (notification.direction == ScrollDirection.idle) {
+                  _isUserInteracting = false;
+                  _startTimer();
+                } else {
+                  _isUserInteracting = true;
+                  _timer?.cancel();
                 }
+                return false;
               },
-              itemBuilder: (context, i) {
-                final item = items[i % items.length];
-                return _HeroSlide(
-                  item: item,
-                  onDetails: () => widget.onDetails(item),
-                  onWatch: widget.onWatch == null
-                      ? null
-                      : () => widget.onWatch!(item),
-                );
-              },
+              child: PageView.builder(
+                controller: controller,
+                onPageChanged: (i) {
+                  if (items.isNotEmpty) {
+                    _indexNotifier.value = i % items.length;
+                  }
+                },
+                itemBuilder: (context, i) {
+                  final item = items[i % items.length];
+                  return _HeroSlide(
+                    item: item,
+                    onDetails: () => widget.onDetails(item),
+                    onWatch: widget.onWatch == null
+                        ? null
+                        : () => widget.onWatch!(item),
+                  );
+                },
+              ),
             ),
-          ),
-          Positioned(
-            bottom: 14,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  GestureDetector(
-                    onTap: () {
-                      final ctrl = _controller;
-                      if (ctrl == null || !ctrl.hasClients) return;
-                      final currentReal = ctrl.page?.round() ?? ctrl.initialPage;
-                      final currentMod = currentReal % items.length;
-                      final delta = i - currentMod;
-                      ctrl.animateToPage(
-                        currentReal + delta,
-                        duration: const Duration(milliseconds: 450),
-                        curve: Curves.easeInOutCubic,
-                      );
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      width: i == _index ? 22 : 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: i == _index
-                            ? AppColors.primary
-                            : Colors.white.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                  ),
-              ],
+            Positioned(
+              bottom: 14,
+              left: 0,
+              right: 0,
+              child: ValueListenableBuilder<int>(
+                valueListenable: _indexNotifier,
+                builder: (context, activeIndex, _) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < items.length; i++)
+                        GestureDetector(
+                          onTap: () {
+                            final ctrl = _controller;
+                            if (ctrl == null || !ctrl.hasClients) return;
+                            final currentReal = ctrl.page?.round() ?? ctrl.initialPage;
+                            final currentMod = currentReal % items.length;
+                            final delta = i - currentMod;
+                            ctrl.animateToPage(
+                              currentReal + delta,
+                              duration: const Duration(milliseconds: 450),
+                              curve: Curves.easeInOutCubic,
+                            );
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            width: i == activeIndex ? 22 : 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: i == activeIndex
+                                  ? AppColors.primary
+                                  : Colors.white.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -196,7 +204,7 @@ class _HeroSlide extends StatelessWidget {
             imageUrl: url,
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
-            memCacheWidth: (size.width * dpr).round(),
+            memCacheWidth: (size.width * dpr).round().clamp(1, 1080),
             fadeInDuration: const Duration(milliseconds: 300),
             placeholder: (_, _) => const ShimmerBox(radius: 0),
             errorWidget: (_, _, _) =>
@@ -239,14 +247,18 @@ class _HeroSlide extends StatelessWidget {
                     const Icon(LucideIcons.star,
                         size: 14, color: AppColors.star),
                     const SizedBox(width: 4),
-                    Text(
-                      [
-                        item.voteAverage.toStringAsFixed(1),
-                        if (item.year.isNotEmpty) item.year,
-                        if (genres.isNotEmpty) genres,
-                      ].join('  •  '),
-                      style: textTheme.bodySmall?.copyWith(
-                        color: AppColors.foreground.withValues(alpha: 0.8),
+                    Expanded(
+                      child: Text(
+                        [
+                          item.voteAverage.toStringAsFixed(1),
+                          if (item.year.isNotEmpty) item.year,
+                          if (genres.isNotEmpty) genres,
+                        ].join('  •  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: AppColors.foreground.withValues(alpha: 0.8),
+                        ),
                       ),
                     ),
                   ],

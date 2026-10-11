@@ -260,56 +260,7 @@ class MovieBoxService {
 
     debugPrint('[MovieBox] Matched subject: $matchedTitle (ID: $matchedSubjectId)');
 
-    // 2. Fetch play-info
-    final playPath = type == MediaType.movie
-        ? '/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$matchedSubjectId'
-        : '/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$matchedSubjectId&se=$season&ep=$episode';
-
-    final playInfoJson = await _request('GET', playPath);
-    if (playInfoJson == null) return null;
-
-    final data = playInfoJson['data'] ?? playInfoJson;
-    final streams = (data['streams'] as List?) ?? [];
-
-    String? playUrl;
-    Map<String, String> headers = {
-      'User-Agent': MovieBoxSessionManager.instance.userAgent,
-      'Referer': 'https://sportslive.wine',
-    };
-
-    for (final s in streams) {
-      final signCookie = s['signCookie']?.toString() ?? '';
-      final streamUrl = s['url']?.toString() ?? '';
-
-      // Clean and normalize cookies
-      final cleanCookie = signCookie
-          .trim()
-          .split(';')
-          .map((c) => c.trim())
-          .where((c) => c.isNotEmpty)
-          .join('; ');
-
-      // Try direct stream url if valid (direct streams load much faster than DASH)
-      if (streamUrl.startsWith('http') && !isDeprecationNotice(streamUrl)) {
-        playUrl = streamUrl;
-        if (cleanCookie.isNotEmpty) {
-          headers['Cookie'] = cleanCookie;
-        }
-        break;
-      }
-
-      // Try DASH manifest
-      final mpd = resolveDashManifestFromPolicy(signCookie);
-      if (mpd != null) {
-        playUrl = mpd;
-        if (cleanCookie.isNotEmpty) {
-          headers['Cookie'] = cleanCookie;
-        }
-        break;
-      }
-    }
-
-    // 3. Fetch resource list for resourceId (captions) and fallback direct links
+    // 2. Fetch resource list FIRST to check for high-speed direct CDN MP4 links
     final resPath = type == MediaType.movie
         ? '/wefeed-mobile-bff/subject-api/resource?subjectId=$matchedSubjectId&page=1&perPage=20'
         : '/wefeed-mobile-bff/subject-api/resource?subjectId=$matchedSubjectId&se=$season&ep=$episode&page=1&perPage=20';
@@ -318,65 +269,90 @@ class MovieBoxService {
     final resList = (resJson?['data']?['list'] as List?) ?? [];
 
     String? firstResourceId;
-    final foundResolutions = <int>{};
+    final directQualities = <StreamQuality>[];
 
     for (final r in resList) {
       firstResourceId ??= (r['id'] ?? r['resourceId'])?.toString();
+      final link = (r['resourceLink'] ?? r['url'])?.toString().trim() ?? '';
       final resNum = r['resolution'];
-      if (resNum is int && resNum > 0) {
-        foundResolutions.add(resNum);
+      if (link.startsWith('http') && !isDeprecationNotice(link)) {
+        final label = resNum is int && resNum > 0 ? '${resNum}p' : '1080p';
+        if (!directQualities.any((q) => q.url == link)) {
+          directQualities.add(StreamQuality(label: label, url: link));
+        }
       }
-      final link = (r['resourceLink'] ?? r['url'])?.toString() ?? '';
-      if (playUrl == null && link.startsWith('http') && !isDeprecationNotice(link)) {
-        playUrl = link;
+    }
+
+    String? playUrl;
+    List<StreamQuality> qualityList = [];
+    Map<String, String> headers = {
+      'User-Agent': MovieBoxSessionManager.instance.userAgent,
+      'Referer': 'https://sportslive.wine',
+    };
+
+    Map<String, dynamic>? playInfoData;
+
+    if (directQualities.isNotEmpty) {
+      // Sort direct CDN links by resolution descending (1080p, 720p, 480p, 360p)
+      directQualities.sort((a, b) {
+        int parseNum(String lbl) => int.tryParse(lbl.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return parseNum(b.label).compareTo(parseNum(a.label));
+      });
+      playUrl = directQualities.first.url;
+      qualityList = directQualities;
+      debugPrint('[MovieBox] Found ${directQualities.length} direct CDN MP4 streams! Top: ${directQualities.first.label} -> $playUrl');
+    } else {
+      // 3. Fallback to play-info DASH manifest if no direct MP4 links exist
+      final playPath = type == MediaType.movie
+          ? '/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$matchedSubjectId'
+          : '/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$matchedSubjectId&se=$season&ep=$episode';
+
+      final playInfoJson = await _request('GET', playPath);
+      playInfoData = (playInfoJson?['data'] ?? playInfoJson) as Map<String, dynamic>?;
+      final streams = (playInfoData?['streams'] as List?) ?? [];
+
+      for (final s in streams) {
+        final signCookie = s['signCookie']?.toString() ?? '';
+        final streamUrl = s['url']?.toString() ?? '';
+
+        final cleanCookie = signCookie
+            .trim()
+            .split(';')
+            .map((c) => c.trim())
+            .where((c) => c.isNotEmpty)
+            .join('; ');
+
+        if (streamUrl.startsWith('http') && !isDeprecationNotice(streamUrl)) {
+          playUrl = streamUrl;
+          if (cleanCookie.isNotEmpty) {
+            headers['Cookie'] = cleanCookie;
+          }
+          break;
+        }
+
+        final mpd = resolveDashManifestFromPolicy(signCookie);
+        if (mpd != null) {
+          playUrl = mpd;
+          if (cleanCookie.isNotEmpty) {
+            headers['Cookie'] = cleanCookie;
+          }
+          break;
+        }
+      }
+
+      if (playUrl != null && playUrl.contains('.mpd')) {
+        final dashInfo = await MovieBoxDashProxy.instance.registerDashStream(
+          originalMpdUrl: playUrl,
+          headers: headers,
+        );
+        playUrl = dashInfo.masterUrl;
+        qualityList = dashInfo.qualities;
       }
     }
 
     if (playUrl == null) {
       debugPrint('[MovieBox] No playable stream found for $matchedTitle');
       return null;
-    }
-
-    debugPrint('[MovieBox] Found direct playable stream: $playUrl');
-
-    // Parse all available resolutions
-    final dispRes = (data['displayResolutions'] ?? '').toString();
-    for (final part in dispRes.split(',')) {
-      final parsed = int.tryParse(part.trim());
-      if (parsed != null && parsed > 0) {
-        foundResolutions.add(parsed);
-      }
-    }
-    for (final s in streams) {
-      final sRes = (s['resolutions'] ?? '').toString();
-      for (final part in sRes.split(',')) {
-        final parsed = int.tryParse(part.trim());
-        if (parsed != null && parsed > 0) {
-          foundResolutions.add(parsed);
-        }
-      }
-    }
-
-    final sortedResolutions = foundResolutions.toList()..sort((a, b) => b.compareTo(a));
-    if (sortedResolutions.isEmpty) {
-      sortedResolutions.addAll([1080, 720, 480]);
-    }
-
-    List<StreamQuality> qualityList = [];
-    if (playUrl.contains('.mpd')) {
-      final dashInfo = await MovieBoxDashProxy.instance.registerDashStream(
-        originalMpdUrl: playUrl,
-        headers: headers,
-      );
-      playUrl = dashInfo.masterUrl;
-      qualityList = dashInfo.qualities;
-    } else {
-      qualityList = sortedResolutions.map((r) {
-        return StreamQuality(
-          label: '${r}p',
-          url: playUrl!,
-        );
-      }).toList();
     }
 
     if (qualityList.isEmpty) {
@@ -386,7 +362,7 @@ class MovieBoxService {
       ));
     }
 
-    // 4. Extract external subtitles using get-ext-captions API
+    // 4. Extract external subtitles using get-ext-captions API and resList
     final subtitles = <SubtitleTrack>[];
 
     if (firstResourceId != null && firstResourceId.isNotEmpty) {
@@ -408,9 +384,26 @@ class MovieBoxService {
       }
     }
 
-    // Fallback to captions in play-info if get-ext-captions returned none
-    if (subtitles.isEmpty) {
-      final captions = (data['extCaptions'] as List?) ?? [];
+    // Also check any captions inside resList items
+    for (final r in resList) {
+      final caps = (r['extCaptions'] as List?) ?? [];
+      for (final c in caps) {
+        final subUrl = c['url']?.toString() ?? '';
+        final lan = (c['lanName'] ?? c['lan'])?.toString().trim() ?? 'Subtitles';
+        final lanCode = (c['lan'] ?? 'en').toString();
+        if (subUrl.startsWith('http') && !subtitles.any((s) => s.url == subUrl)) {
+          subtitles.add(SubtitleTrack(
+            url: subUrl,
+            label: lan,
+            language: lanCode,
+          ));
+        }
+      }
+    }
+
+    // Fallback to captions in play-info if available
+    if (subtitles.isEmpty && playInfoData != null) {
+      final captions = (playInfoData['extCaptions'] as List?) ?? [];
       for (final c in captions) {
         final subUrl = c['url']?.toString() ?? '';
         final lan = (c['lanName'] ?? c['lan'])?.toString().trim() ?? 'Subtitles';

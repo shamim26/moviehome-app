@@ -165,7 +165,7 @@ class MovieBoxDashProxy {
       r'<Representation\s+([^>]*?)>([\s\S]*?)</Representation>',
     );
 
-    final keptRepresentations = <String>[];
+    final Map<String, String> repIdToSanitized = {};
     int maxRemainingWidth = 0;
     int maxRemainingHeight = 0;
 
@@ -173,10 +173,13 @@ class MovieBoxDashProxy {
       final fullTag = match.group(0)!;
       final attrs = match.group(1)!;
 
+      final idMatch = RegExp(r'\bid="([^"]+)"').firstMatch(attrs);
+      final repId = idMatch?.group(1) ?? fullTag;
+
       // Check if it's audio (mimeType="audio/..." or codecs starting with mp4a)
       if (attrs.contains('mimeType="audio') || attrs.contains('codecs="mp4a')) {
         // Keep all audio representations
-        keptRepresentations.add(fullTag);
+        repIdToSanitized[repId] = fullTag;
         continue;
       }
 
@@ -199,37 +202,65 @@ class MovieBoxDashProxy {
         continue;
       }
 
-      if (width > maxRemainingWidth) maxRemainingWidth = width;
+      // Align width to multiple of 16 to prevent Qualcomm CCodec (c2.qti.hevc.decoder)
+      // from throwing BAD_VALUE (-22) when width % 16 != 0 (e.g. 1994x1080 -> 2000x1080)
+      var sanitizedTag = fullTag;
+      int effectiveWidth = width;
+      if (width > 0 && width % 16 != 0) {
+        final aligned = ((width + 15) ~/ 16) * 16;
+        effectiveWidth = aligned <= maxWidthAllowed ? aligned : ((maxWidthAllowed ~/ 16) * 16);
+        sanitizedTag = sanitizedTag.replaceAllMapped(
+          RegExp(r'\bwidth="\d+"'),
+          (_) => 'width="$effectiveWidth"',
+        );
+        debugPrint('[MovieBoxDashProxy] Aligned representation width $width -> $effectiveWidth for hardware decoder compatibility');
+      }
+
+      if (effectiveWidth > maxRemainingWidth) maxRemainingWidth = effectiveWidth;
       if (height > maxRemainingHeight) maxRemainingHeight = height;
-      keptRepresentations.add(fullTag);
+      repIdToSanitized[repId] = sanitizedTag;
     }
 
     // If all video representations were filtered out (edge case), fall back to smallest video rep
-    final hasVideo = keptRepresentations.any((r) => r.contains('width='));
+    final hasVideo = repIdToSanitized.values.any((r) => r.contains('width='));
     if (!hasVideo) {
       int minWidth = 99999;
+      String? smallestRepId;
       String? smallestRep;
       for (final match in repRegex.allMatches(rawXml)) {
         final fullTag = match.group(0)!;
         final attrs = match.group(1)!;
         final widthMatch = RegExp(r'width="(\d+)"').firstMatch(attrs);
         final width = widthMatch != null ? int.tryParse(widthMatch.group(1)!) ?? 0 : 0;
+        final idMatch = RegExp(r'\bid="([^"]+)"').firstMatch(attrs);
+        final repId = idMatch?.group(1) ?? fullTag;
         if (width > 0 && width < minWidth) {
           minWidth = width;
-          smallestRep = fullTag;
+          smallestRepId = repId;
+          var sanitized = fullTag;
+          if (width % 16 != 0) {
+            final aligned = ((width + 15) ~/ 16) * 16;
+            final effective = aligned <= maxWidthAllowed ? aligned : ((maxWidthAllowed ~/ 16) * 16);
+            sanitized = sanitized.replaceAllMapped(
+              RegExp(r'\bwidth="\d+"'),
+              (_) => 'width="$effective"',
+            );
+          }
+          smallestRep = sanitized;
         }
       }
-      if (smallestRep != null) {
-        keptRepresentations.add(smallestRep);
+      if (smallestRep != null && smallestRepId != null) {
+        repIdToSanitized[smallestRepId] = smallestRep;
       }
     }
 
-    // Replace all representations in XML with kept ones
-    // We can do this cleanly by removing all original video representations and inserting kept ones
+    // Replace all representations in XML with kept and sanitized ones
     xml = xml.replaceAllMapped(repRegex, (m) {
-      final fullTag = m.group(0)!;
-      if (keptRepresentations.contains(fullTag)) {
-        return fullTag;
+      final attrs = m.group(1)!;
+      final idMatch = RegExp(r'\bid="([^"]+)"').firstMatch(attrs);
+      final repId = idMatch?.group(1) ?? m.group(0)!;
+      if (repIdToSanitized.containsKey(repId)) {
+        return repIdToSanitized[repId]!;
       }
       return ''; // Strip filtered representation
     });
@@ -237,6 +268,11 @@ class MovieBoxDashProxy {
     // Update maxWidth and maxHeight in AdaptationSet if we know them
     if (maxRemainingWidth > 0) {
       xml = xml.replaceAll(RegExp(r'maxWidth="\d+"'), 'maxWidth="$maxRemainingWidth"');
+      xml = xml.replaceAllMapped(RegExp(r'<AdaptationSet\b([^>]*)>'), (m) {
+        var asTag = m.group(0)!;
+        asTag = asTag.replaceAllMapped(RegExp(r'\bwidth="\d+"'), (_) => 'width="$maxRemainingWidth"');
+        return asTag;
+      });
     }
     if (maxRemainingHeight > 0) {
       xml = xml.replaceAll(RegExp(r'maxHeight="\d+"'), 'maxHeight="$maxRemainingHeight"');

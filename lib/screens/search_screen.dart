@@ -22,7 +22,9 @@ enum SearchFilter {
 }
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.isTab = false});
+
+  final bool isTab;
 
   static Future<void> push(BuildContext context) {
     return Navigator.of(context).push(
@@ -192,6 +194,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
+  double get _bottomNavInset =>
+      widget.isTab ? 110 + MediaQuery.paddingOf(context).bottom : 24;
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredResults;
@@ -203,17 +208,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           children: [
             // 1. Search Header Bar
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+              padding: EdgeInsets.fromLTRB(widget.isTab ? 16 : 8, 8, 16, 8),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: const Icon(
-                      LucideIcons.arrowLeft,
-                      color: AppColors.foreground,
-                      size: 22,
+                  if (!widget.isTab)
+                    IconButton(
+                      icon: const Icon(
+                        LucideIcons.arrowLeft,
+                        color: AppColors.foreground,
+                        size: 22,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
                   Expanded(
                     child: Container(
                       height: 48,
@@ -225,7 +231,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       child: TextField(
                         controller: _controller,
                         focusNode: _focusNode,
-                        autofocus: true,
+                        autofocus: !widget.isTab,
                         textInputAction: TextInputAction.search,
                         style: const TextStyle(
                           color: AppColors.foreground,
@@ -431,7 +437,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     return GridView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, _bottomNavInset),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 10,
@@ -460,7 +466,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final trendingAsync = ref.watch(trendingProvider);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, _bottomNavInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -563,7 +569,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     return GridView.builder(
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        shrinkWrap ? 24 : _bottomNavInset,
+      ),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 10,

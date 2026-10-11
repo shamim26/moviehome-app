@@ -1,15 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../config/app_theme.dart';
 
+class NavIndexNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void setIndex(int index) => state = index;
+}
+
+final navIndexProvider =
+    NotifierProvider<NavIndexNotifier, int>(NavIndexNotifier.new);
+
 /// Root shell: keeps every tab alive and shows a floating glass nav bar.
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.tabs});
 
   final List<AppTab> tabs;
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final index = ref.watch(navIndexProvider).clamp(0, tabs.length - 1);
+
+    return Scaffold(
+      extendBody: true,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: index,
+            children: [for (final t in tabs) t.page],
+          ),
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 14 + MediaQuery.paddingOf(context).bottom,
+            child: _FloatingNavBar(
+              tabs: tabs,
+              index: index,
+              onChanged: (i) => ref.read(navIndexProvider.notifier).setIndex(i),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class AppTab {
@@ -26,35 +61,6 @@ class AppTab {
   final Widget page;
 }
 
-class _AppShellState extends State<AppShell> {
-  int _index = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _index,
-            children: [for (final t in widget.tabs) t.page],
-          ),
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: 14 + MediaQuery.paddingOf(context).bottom,
-            child: _FloatingNavBar(
-              tabs: widget.tabs,
-              index: _index,
-              onChanged: (i) => setState(() => _index = i),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
     required this.tabs,
@@ -68,6 +74,7 @@ class _FloatingNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final centerIdx = tabs.length ~/ 2;
     return RepaintBoundary(
       child: Container(
         height: 64,
@@ -91,6 +98,7 @@ class _FloatingNavBar extends StatelessWidget {
                 child: _NavItem(
                   tab: tabs[i],
                   selected: i == index,
+                  isCenter: i == centerIdx,
                   onTap: () => onChanged(i),
                 ),
               ),
@@ -106,15 +114,18 @@ class _NavItem extends StatelessWidget {
     required this.tab,
     required this.selected,
     required this.onTap,
+    this.isCenter = false,
   });
 
   final AppTab tab;
   final bool selected;
   final VoidCallback onTap;
+  final bool isCenter;
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? AppColors.primary : AppColors.mutedForeground;
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -122,16 +133,31 @@ class _NavItem extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           AnimatedScale(
-            scale: selected ? 1.08 : 1,
+            scale: selected ? 1.12 : (isCenter ? 1.05 : 1.0),
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutBack,
-            child: Icon(
-              selected ? tab.selectedIcon : tab.icon,
-              size: 22,
-              color: color,
-            ),
+            child: isCenter
+                ? Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      selected ? tab.selectedIcon : tab.icon,
+                      size: 22,
+                      color: color,
+                    ),
+                  )
+                : Icon(
+                    selected ? tab.selectedIcon : tab.icon,
+                    size: 21,
+                    color: color,
+                  ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 200),
             style: TextStyle(

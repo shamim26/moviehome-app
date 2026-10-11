@@ -156,6 +156,77 @@ class TmdbService {
 
   // ── Browse (paginated) ──────────────────────────────────────────────────
 
+  Future<PaginatedMedia> fetchMoviesPaginated({
+    int page = 1,
+    String category = 'popular',
+    int? genreId,
+  }) async {
+    if (genreId != null) {
+      final data = await _get('/discover/movie', {
+        'sort_by': 'popularity.desc',
+        'with_genres': genreId,
+        'page': page,
+      });
+      return _paginated(data, page, forced: MediaType.movie);
+    }
+
+    String path;
+    switch (category) {
+      case 'top_rated':
+        path = '/movie/top_rated';
+      case 'now_playing':
+        path = '/movie/now_playing';
+      case 'upcoming':
+        path = '/movie/upcoming';
+      case 'popular':
+      default:
+        path = '/movie/popular';
+    }
+
+    final data = await _get(path, {'page': page});
+    return _paginated(data, page, forced: MediaType.movie);
+  }
+
+  Future<PaginatedMedia> fetchTvPaginated({
+    int page = 1,
+    String category = 'popular',
+    int? genreId,
+    bool isAnime = false,
+  }) async {
+    if (isAnime) {
+      final data = await _get('/discover/tv', {
+        'sort_by': 'popularity.desc',
+        'with_genres': 16,
+        'with_original_language': 'ja',
+        'page': page,
+      });
+      return _paginated(data, page, forced: MediaType.tv);
+    }
+
+    if (genreId != null) {
+      final data = await _get('/discover/tv', {
+        'sort_by': 'popularity.desc',
+        'with_genres': genreId,
+        'page': page,
+      });
+      return _paginated(data, page, forced: MediaType.tv);
+    }
+
+    String path;
+    switch (category) {
+      case 'top_rated':
+        path = '/tv/top_rated';
+      case 'on_the_air':
+        path = '/tv/on_the_air';
+      case 'popular':
+      default:
+        path = '/tv/popular';
+    }
+
+    final data = await _get(path, {'page': page});
+    return _paginated(data, page, forced: MediaType.tv);
+  }
+
   Future<PaginatedMedia> moviesByLanguage({
     String? langCode,
     int page = 1,

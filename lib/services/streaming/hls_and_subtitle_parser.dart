@@ -64,7 +64,7 @@ class HlsAndSubtitleHelper {
     final baseUri = Uri.parse(baseUrl);
     final lines = manifestContent.split(RegExp(r'\r?\n'));
 
-    final qualities = <StreamQuality>[];
+    final variantEntries = <({StreamQuality quality, int height})>[];
     final subtitles = <SubtitleTrack>[];
     final seenQualities = <String>{};
     final seenSubs = <String>{};
@@ -113,14 +113,21 @@ class HlsAndSubtitleHelper {
           final nameMatch = RegExp(r'NAME="([^"]+)"').firstMatch(line);
 
           String qualityLabel = 'HD';
+          int width = 0;
           int height = 0;
           if (resMatch != null) {
+            width = int.tryParse(resMatch.group(1) ?? '0') ?? 0;
             height = int.tryParse(resMatch.group(2) ?? '0') ?? 0;
-            if (height >= 2160) {
-              qualityLabel = '4K';
-            } else if (height >= 1440) {
-              qualityLabel = '1440p';
-            } else if (height >= 1080) {
+
+            // HARDWARE DECODER COMPATIBILITY:
+            // Skip variants exceeding 2048 width or 1200 height (such as 4K 3840x1600 or 2592x1080 ultrawide).
+            // On mid-range Android chipsets (e.g. Snapdragon 685 / Adreno 610), resolutions > 2048
+            // cause MediaCodec failure, surface abandonment, and black screens.
+            if (width > 2048 || height > 1200) {
+              continue;
+            }
+
+            if (height >= 1080) {
               qualityLabel = '1080p';
             } else if (height >= 720) {
               qualityLabel = '720p';
@@ -138,23 +145,28 @@ class HlsAndSubtitleHelper {
           final resolved = baseUri.resolve(variantUri).toString();
           if (!seenQualities.contains(qualityLabel)) {
             seenQualities.add(qualityLabel);
-            qualities.add(StreamQuality(
-              label: qualityLabel,
-              url: resolved,
+            variantEntries.add((
+              quality: StreamQuality(
+                label: qualityLabel,
+                url: resolved,
+              ),
+              height: height > 0 ? height : (qualityLabel.contains('1080') ? 1080 : 720),
             ));
           }
         }
       }
     }
 
-    final finalQualities = <StreamQuality>[];
-    if (qualities.isNotEmpty) {
-      // Prepend Auto option pointing to master playlist
-      finalQualities.add(StreamQuality(label: 'Auto', url: baseUrl));
-      finalQualities.addAll(qualities);
-    }
+    // Sort variants by resolution descending so the highest safe quality is always first
+    variantEntries.sort((a, b) => b.height.compareTo(a.height));
+    final qualities = variantEntries.map((e) => e.quality).toList();
 
-    return (qualities: finalQualities, subtitles: subtitles);
+    return (
+      qualities: qualities.isNotEmpty
+          ? qualities
+          : [StreamQuality(label: 'Source', url: baseUrl)],
+      subtitles: subtitles,
+    );
   }
 
   /// Downloads and parses WebVTT or SRT subtitles into cue objects.

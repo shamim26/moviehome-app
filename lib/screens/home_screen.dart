@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:lucide_icons_flutter/lucide_icons.dart';
-
 import '../config/app_theme.dart';
 import '../models/media_item.dart';
 import '../providers/home_provider.dart';
@@ -12,7 +10,6 @@ import '../widgets/common/media_row.dart';
 import '../widgets/common/shimmer_box.dart';
 import 'detail_screen.dart';
 import 'player_screen.dart';
-import 'search_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -155,43 +152,25 @@ class _TopBar extends StatelessWidget {
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 16, 0),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                'assets/images/app_logo.png',
+                height: 32,
+                width: 32,
+                fit: BoxFit.contain,
+              ),
+            ),
+            const SizedBox(width: 10),
             Text(
               'MOVIE HOME',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
-                letterSpacing: 2.4,
+                letterSpacing: 2.2,
                 color: AppColors.primary,
-              ),
-            ),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(22),
-                onTap: () => SearchScreen.push(context),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      LucideIcons.search,
-                      color: Colors.white,
-                      size: 19,
-                    ),
-                  ),
-                ),
               ),
             ),
           ],

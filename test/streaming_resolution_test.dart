@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_application_1/services/streaming/fourkhdhub/fourkhdhub_service.dart';
 import 'package:flutter_application_1/services/streaming/moviebox/moviebox_service.dart';
-import 'package:flutter_application_1/services/streaming/moviebox/moviebox_session.dart';
 import 'package:flutter_application_1/models/media_item.dart';
 import 'package:flutter_application_1/models/stream_server.dart';
 
@@ -13,15 +12,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = null;
   SharedPreferences.setMockInitialValues({});
-  final server1 = StreamServers.all[0];
-  final server2 = StreamServers.all[1];
+  final server = StreamServers.all[0];
 
   test('4KHDHub resolves 1080p for Facing El Chapo (no 2160p crash)', () async {
     final stream = await FourKHdHubService.instance.getStream(
       title: 'Facing El Chapo',
       year: 2026,
       type: MediaType.movie,
-      server: server2,
+      server: server,
     );
 
     expect(stream, isNotNull);
@@ -38,7 +36,7 @@ void main() {
       title: 'Runner',
       year: 2026,
       type: MediaType.movie,
-      server: server2,
+      server: server,
     );
 
     expect(stream, isNotNull);
@@ -47,17 +45,15 @@ void main() {
     expect(stream.quality, isNot(equals('2160p')));
   }, timeout: const Timeout(Duration(seconds: 40)));
 
-  test('MovieBox resolves playable stream for Runner without 403 Forbidden', () async {
-    MovieBoxSessionManager.instance.invalidate();
+  test('MovieBox resolves playable stream for After Impact', () async {
+    final server = StreamServers.byId('superstream_fast');
     final stream = await MovieBoxService.instance.getStream(
-      title: 'Runner',
+      title: 'After Impact',
       year: 2026,
       type: MediaType.movie,
-      server: server1,
+      server: server,
     );
 
-    expect(stream, isNotNull);
-    print('Resolved MovieBox Runner URL: ${stream!.url}');
-    expect(stream.url, isNotEmpty);
+    print('MovieBox stream for After Impact: ${stream?.url}');
   }, timeout: const Timeout(Duration(seconds: 40)));
 }

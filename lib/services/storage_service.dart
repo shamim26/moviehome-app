@@ -41,8 +41,23 @@ class StorageService {
     await prefs?.setStringList(_watchlistKey, list);
   }
 
-  // Watch progress: saves last server, season and episode
-  Map<String, dynamic>? getWatchProgress(int tmdbId, MediaType type) {
+  // Watch progress: saves last server, season and episode (both series-level and per-episode)
+  Map<String, dynamic>? getWatchProgress(
+    int tmdbId,
+    MediaType type, {
+    int? season,
+    int? episode,
+  }) {
+    if (season != null && episode != null) {
+      final epKey = '$_progressPrefix${type.path}_${tmdbId}_s${season}_e$episode';
+      final epRaw = _prefs?.getString(epKey) ?? (_memoryCache[epKey] as String?);
+      if (epRaw != null) {
+        try {
+          return jsonDecode(epRaw) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      return null;
+    }
     final key = '$_progressPrefix${type.path}_$tmdbId';
     final raw = _prefs?.getString(key) ?? (_memoryCache[key] as String?);
     if (raw == null) return null;
@@ -62,6 +77,7 @@ class StorageService {
     int positionSeconds = 0,
   }) async {
     final key = '$_progressPrefix${type.path}_$tmdbId';
+    final epKey = '$_progressPrefix${type.path}_${tmdbId}_s${season}_e$episode';
     final data = {
       'serverId': serverId,
       'season': season,
@@ -71,8 +87,10 @@ class StorageService {
     };
     final jsonStr = jsonEncode(data);
     _memoryCache[key] = jsonStr;
+    _memoryCache[epKey] = jsonStr;
     final prefs = await _getPrefs();
     await prefs?.setString(key, jsonStr);
+    await prefs?.setString(epKey, jsonStr);
   }
 }
 

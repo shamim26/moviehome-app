@@ -26,6 +26,8 @@ class FourKHdHubService {
     int season = 1,
     int episode = 1,
     required StreamServer server,
+    int? preferredResolution,
+    int candidateOffset = 0,
   }) async {
     try {
       final isSeries = type == MediaType.tv;
@@ -57,8 +59,22 @@ class FourKHdHubService {
       );
 
       debugPrint('[4KHDHub] Found ${driveCandidates.length} drive candidate(s)');
+      if (driveCandidates.isEmpty) return null;
 
-      for (final candidate in driveCandidates) {
+      // Re-sort if preferredResolution is requested
+      if (preferredResolution != null) {
+        driveCandidates.sort((a, b) {
+          if (a.resolution == preferredResolution && b.resolution != preferredResolution) return -1;
+          if (a.resolution != preferredResolution && b.resolution == preferredResolution) return 1;
+          return b.resolution.compareTo(a.resolution);
+        });
+      }
+
+      final effectiveCandidates = candidateOffset > 0 && candidateOffset < driveCandidates.length
+          ? driveCandidates.skip(candidateOffset).toList()
+          : driveCandidates;
+
+      for (final candidate in effectiveCandidates) {
         final streamUrl = await _resolveDriveLink(candidate.url);
         if (streamUrl != null && streamUrl.isNotEmpty) {
           final cleanUrl = streamUrl.trim().replaceAll(' ', '%20');
@@ -69,6 +85,7 @@ class FourKHdHubService {
             headers: const {
               'User-Agent':
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              'Referer': 'https://hubcloud.club/',
             },
             server: server,
             quality: qualityLabel,
@@ -128,7 +145,7 @@ class FourKHdHubService {
       }
     }
 
-    return yearMatch ?? exactTitleMatch ?? partialMatch ?? fallback;
+    return yearMatch ?? exactTitleMatch ?? partialMatch;
   }
 
   List<_FourKCandidate> _extractDriveCandidates(
@@ -213,14 +230,23 @@ class FourKHdHubService {
         if (c.url.contains('hubcloud') || c.title.toLowerCase().contains('hubcloud')) {
           s += 50;
         }
+        // Strongly prioritize universally hardware-accelerated H.264 (x264)
         if (c.isH264) {
-          s += 20;
+          s += 1500;
+        }
+        // Deprioritize Dolby Vision / 10-bit HDR which fails on mid-range Android hardware decoders
+        final lower = c.title.toLowerCase();
+        if (lower.contains('10bit') || lower.contains('dv') || lower.contains('dolby') || lower.contains('hdr')) {
+          s -= 1000;
         }
         return s;
       }
 
       return score(b).compareTo(score(a));
     });
+
+    // Filter out 4K / 2160p to prevent mobile hardware decoder crashes on chipsets capped at 1080p
+    candidates.removeWhere((c) => c.resolution > 1080);
 
     // Remove duplicates by URL while preserving sorted order
     final seen = <String>{};

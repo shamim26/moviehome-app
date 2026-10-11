@@ -41,6 +41,22 @@ jobs:
             echo '{"TMDB_API_KEY":""}' > env.json
           fi
 
+      - name: Setup Release Keystore
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/moviehome-release.jks
+          cat <<EOF > android/key.properties
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=moviehome-release.jks
+          EOF
+
       - name: Build Split-per-ABI Release APKs (~35MB)
         run: flutter build apk --release --split-per-abi --dart-define-from-file=env.json
 

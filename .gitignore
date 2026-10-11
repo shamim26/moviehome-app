@@ -52,3 +52,7 @@ env.json
 .env
 .env.*
 !env.example.json
+key.properties
+android/key.properties
+*.jks
+*.keystore
